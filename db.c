@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define COLUMN_USERNAME_SIZE 32
+#define COLUMN_EMAIL_SIZE 255
 typedef struct
 {
     char *buffer;
@@ -19,7 +21,8 @@ typedef enum
 typedef enum
 {
     PREPARE_STATEMENT_SUCCESS,
-    PREPARE_STATEMENT_UNRECOGNIZED_COMMAND
+    PREPARE_STATEMENT_UNRECOGNIZED_COMMAND,
+    PREPARE_STATEMENT_SYNTAX_ERROR
 } PrepareResult;
 
 typedef enum
@@ -30,7 +33,14 @@ typedef enum
 
 typedef struct
 {
+    uint32_t id;
+    char username[COLUMN_USERNAME_SIZE];
+    char email[COLUMN_EMAIL_SIZE];
+} Row;
+typedef struct
+{
     StatementType type;
+    Row row_to_insert; // only used by insert statement
 } Statement;
 /*
 Init InputBuffer object
@@ -87,6 +97,9 @@ MetaCommandResult do_meta_command(InputBuffer *input_buffer)
     }
 }
 
+/*
+Parses input and constructs Statement
+*/
 PrepareResult prepare_statement(InputBuffer *input_buffer, Statement *statement)
 {
     if (StartsWith(input_buffer->buffer, "SELECT"))
@@ -100,6 +113,18 @@ PrepareResult prepare_statement(InputBuffer *input_buffer, Statement *statement)
     {
         // handle input starting with INSERT
         statement->type = STATEMENT_INSERT;
+
+        // parse "insert 1 cstack foo@bar.com" -> id, username, email
+        int inputs_matched = sscanf(input_buffer->buffer, "INSERT %d %s %s",
+              &(statement->row_to_insert.id),
+              statement->row_to_insert.username,
+              statement->row_to_insert.email);
+
+        if (inputs_matched != 3)
+        {
+            return PREPARE_STATEMENT_SYNTAX_ERROR;
+        }
+
         return PREPARE_STATEMENT_SUCCESS;
     }
 
@@ -151,6 +176,9 @@ int main(int argc, char *argv[])
         {
         case (PREPARE_STATEMENT_SUCCESS):
             break;
+        case (PREPARE_STATEMENT_SYNTAX_ERROR):
+            printf("Syntax error in statement '%s'.\n", input_buffer->buffer);
+            continue;
         case (PREPARE_STATEMENT_UNRECOGNIZED_COMMAND):
             printf("Unrecognized keyword at start of '%s'.\n", input_buffer->buffer);
             continue;
