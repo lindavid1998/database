@@ -5,18 +5,29 @@
 
 #define COLUMN_USERNAME_SIZE 32
 #define COLUMN_EMAIL_SIZE 255
+#define TABLE_MAX_PAGES 100
 
 // #define size_of_attribute(Struct, Attribute) sizeof(((Struct *)0)->Attribute)
 // const uint32_t ID_SIZE = size_of_attribute(Row, id);
 // const uint32_t USERNAME_SIZE = size_of_attribute(Row, username);
 // const uint32_t EMAIL_SIZE = size_of_attribute(Row, email);
-const uint32_t ID_SIZE = 4; // bytes
+const uint32_t ID_SIZE = 4;        // bytes
 const uint32_t USERNAME_SIZE = 32; // bytes
-const uint32_t EMAIL_SIZE = 255; // bytes
+const uint32_t EMAIL_SIZE = 255;   // bytes
 const uint32_t ID_OFFSET = 0;
 const uint32_t USERNAME_OFFSET = ID_OFFSET + ID_SIZE;
 const uint32_t EMAIL_OFFSET = USERNAME_OFFSET + USERNAME_SIZE;
 const uint32_t ROW_SIZE = ID_SIZE + USERNAME_SIZE + EMAIL_SIZE;
+
+const uint32_t PAGE_SIZE = 4096; // bytes
+const uint32_t ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
+const uint32_t TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES;
+
+typedef struct
+{
+    uint32_t num_rows;
+    void *pages[TABLE_MAX_PAGES];
+} Table;
 
 typedef struct
 {
@@ -55,6 +66,26 @@ typedef struct
     StatementType type;
     Row row_to_insert; // only used by insert statement
 } Statement;
+
+Table *new_table()
+{
+    Table *table = (Table *)malloc(sizeof(Table));
+    table->num_rows = 0;
+    for (int i = 0; i < TABLE_MAX_PAGES; i++)
+    {
+        table->pages[i] = NULL;
+    }
+    return table;
+}
+
+void free_table(Table *table)
+{
+    for (int i = 0; i < TABLE_MAX_PAGES; i++)
+    {
+        free(table->pages[i]);
+    }
+    free(table);
+}
 /*
 Init InputBuffer object
 */
@@ -164,12 +195,40 @@ PrepareResult prepare_statement(InputBuffer *input_buffer, Statement *statement)
     return PREPARE_STATEMENT_UNRECOGNIZED_COMMAND;
 }
 
-void execute_statement(Statement *statement)
+/*
+Get address for where to insert row
+i.e. convert row num to address
+*/
+void *get_row_insert_address(Table *table, uint32_t row_num)
+{
+    // Get page address //
+    uint32_t page_index = row_num / ROWS_PER_PAGE;
+    void *page = table->pages[page_index];
+    // if page hasn't been allocated yet (null pointer)
+    if (page == NULL)
+    {
+        // allocate memory for it using PAGE_SIZE
+        page = table->pages[page_index] = malloc(PAGE_SIZE);
+    }
+
+    // Get page offset //
+    // to get offset, figure out which row idx on the page, then convert to bytes
+    uint32_t row_index = row_num % ROWS_PER_PAGE;
+    uint32_t offset = row_index * ROW_SIZE;
+
+    return page + offset;
+}
+
+void execute_statement(Table *table, Statement *statement)
 {
     switch (statement->type)
     {
     case (STATEMENT_INSERT):
         // todo
+        // statement contains property row_to_insert
+        // row_to_insert contains id, username, email
+        // the objective is to insert row into table
+
         printf("Handle insert\n");
         break;
     case (STATEMENT_SELECT):
@@ -182,6 +241,7 @@ void execute_statement(Statement *statement)
 int main(int argc, char *argv[])
 {
     InputBuffer *input_buffer = new_input_buffer();
+    Table *table = new_table();
 
     while (true)
     {
@@ -217,7 +277,7 @@ int main(int argc, char *argv[])
         }
 
         // execute Statement
-        execute_statement(&statement);
+        execute_statement(table, &statement);
         printf("Executed.\n");
     }
 }
