@@ -1,0 +1,1 @@
+To understand how databases work under the hood, I am making sqlite from scratch using C!
