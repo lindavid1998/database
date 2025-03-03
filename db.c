@@ -51,6 +51,12 @@ typedef enum
 
 typedef enum
 {
+    EXECUTE_STATEMENT_SUCCESS,
+    EXECUTE_STATEMENT_TABLE_FULL,
+    EXECUTE_STATEMENT_ERROR
+} ExecuteResult;
+typedef enum
+{
     STATEMENT_INSERT,
     STATEMENT_SELECT
 } StatementType;
@@ -199,10 +205,10 @@ PrepareResult prepare_statement(InputBuffer *input_buffer, Statement *statement)
 Get address for where to insert row
 i.e. convert row num to address
 */
-void *get_row_insert_address(Table *table, uint32_t row_num)
+void *get_row_address(Table *table, uint32_t row_idx)
 {
     // Get page address //
-    uint32_t page_index = row_num / ROWS_PER_PAGE;
+    uint32_t page_index = row_idx / ROWS_PER_PAGE;
     void *page = table->pages[page_index];
     // if page hasn't been allocated yet (null pointer)
     if (page == NULL)
@@ -213,35 +219,65 @@ void *get_row_insert_address(Table *table, uint32_t row_num)
 
     // Get page offset //
     // to get offset, figure out which row idx on the page, then convert to bytes
-    uint32_t row_index = row_num % ROWS_PER_PAGE;
+    uint32_t row_index = row_idx % ROWS_PER_PAGE;
     uint32_t offset = row_index * ROW_SIZE;
 
     return page + offset;
 }
 
-void execute_statement(Table *table, Statement *statement)
+ExecuteResult execute_insert(Table *table, Statement *statement)
+{
+    // check if table is full
+    if (table->num_rows == TABLE_MAX_ROWS)
+    {
+        return EXECUTE_STATEMENT_TABLE_FULL;
+    }
+
+    // get address to insert row
+    void *row_addr = get_row_address(table, table->num_rows);
+
+    // insert serialized row into address
+    serialize_row(&(statement->row_to_insert), row_addr);
+
+    // increment table->num_rows by 1
+    table->num_rows += 1;
+
+    return EXECUTE_STATEMENT_SUCCESS;
+}
+
+void print_row(Row *row)
+{
+    printf("%d %s %s\n", row->id, row->username, row->email);
+}
+
+ExecuteResult execute_select(Table *table, Statement *statement)
+{
+    // print all rows
+    Row row;
+    // for each row, deserialize and print
+    for (uint32_t i = 0; i < table->num_rows; i++)
+    {
+        deserialize_row(get_row_address(table, i), &row);
+        print_row(&row);
+    }
+    return EXECUTE_STATEMENT_SUCCESS;
+}
+
+ExecuteResult execute_statement(Table *table, Statement *statement)
 {
     switch (statement->type)
     {
     case (STATEMENT_INSERT):
-        // todo
-        // statement contains property row_to_insert
-        // row_to_insert contains id, username, email
-        // the objective is to insert row into table
-
-        printf("Handle insert\n");
-        break;
+        return execute_insert(table, statement);
     case (STATEMENT_SELECT):
-        // todo
-        printf("Handle select\n");
-        break;
+        return execute_select(table, statement);
     }
 }
 
 int main(int argc, char *argv[])
 {
     InputBuffer *input_buffer = new_input_buffer();
-    Table *table = new_table();
+    Table *table = new_table(); // table in memory, does not persist to disk
 
     while (true)
     {
@@ -277,7 +313,16 @@ int main(int argc, char *argv[])
         }
 
         // execute Statement
-        execute_statement(table, &statement);
-        printf("Executed.\n");
+        switch (execute_statement(table, &statement))
+        {
+        case (EXECUTE_STATEMENT_SUCCESS):
+            printf("Executed.\n");
+            break;
+        case (EXECUTE_STATEMENT_TABLE_FULL):
+            printf("Failed to insert, table is full");
+            continue;
+        case (EXECUTE_STATEMENT_ERROR):
+            printf("Error executing statement, please retry");
+        }
     }
 }
