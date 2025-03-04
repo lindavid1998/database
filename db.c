@@ -319,10 +319,10 @@ int main(int argc, char *argv[])
             printf("Executed.\n");
             break;
         case (EXECUTE_STATEMENT_TABLE_FULL):
-            printf("Failed to insert, table is full");
+            printf("Failed to insert, table is full.\n");
             continue;
         case (EXECUTE_STATEMENT_ERROR):
-            printf("Error executing statement, please retry");
+            printf("Error executing statement, please retry.\n");
         }
     }
 }
