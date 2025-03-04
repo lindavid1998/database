@@ -2,6 +2,8 @@ import subprocess
 import unittest
 
 MAX_ROWS = 1400
+MAX_USERNAME_LENGTH = 32
+MAX_EMAIL_LENGTH = 255
 
 class TestDatabase(unittest.TestCase):
     def run_script(self, commands):
@@ -65,8 +67,21 @@ class TestDatabase(unittest.TestCase):
         ])
 
 
+    # Tests that table can hold MAX_ROWS    
+    def test_insert_at_full_table(self):
+        commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS)]
+        commands += [".exit"]
+
+        result = self.run_script(commands)
+
+        self.assertEqual(result[-2:], [
+            "db > Executed.",
+            "db > "
+        ])
+
+
     # Test the insert function when the table is full
-    def test_insert_full_table(self):
+    def test_insert_exceed_full_table(self):
         commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS + 1)]
         commands += [".exit"]
 
@@ -77,6 +92,33 @@ class TestDatabase(unittest.TestCase):
             "db > "
         ])
 
+    # 'allows inserting strings that are the maximum length'
+    def test_insert_max_length_strings(self):
+        username = "a" * MAX_USERNAME_LENGTH
+        email = "a" * MAX_EMAIL_LENGTH
+
+        commands = [f"INSERT 0 {username} {email}", ".exit"]
+
+        result = self.run_script(commands)
+
+        self.assertEqual(result, [
+            "db > Executed.",
+            "db > "
+        ])
+
+    def test_insert_string_too_long(self):
+        # NOTE: this test fails, so code does not correctly handle right now
+        username = "a" * (MAX_USERNAME_LENGTH + 1)
+        email = "a" * (MAX_EMAIL_LENGTH + 1)
+
+        commands = [f"INSERT 0 {username} {email}", ".exit"]
+
+        result = self.run_script(commands)
+
+        self.assertEqual(result, [
+            "db > Input string is too long.",
+            "db > "
+        ])
 
 if __name__ == '__main__':
     unittest.main()
