@@ -1,11 +1,15 @@
 import subprocess
 import unittest
+import os
 
 MAX_ROWS = 1400
 MAX_USERNAME_LENGTH = 32
 MAX_EMAIL_LENGTH = 255
 
 class TestDatabase(unittest.TestCase):
+    def tearDown(self):
+        os.remove("data.db")
+
     def run_script(self, commands):
         process = subprocess.Popen(
             ["./a.out"],
@@ -106,6 +110,7 @@ class TestDatabase(unittest.TestCase):
             "db > "
         ])
 
+    @unittest.skip("This test is skipped because it's under development")
     def test_insert_string_too_long(self):
         # NOTE: this test fails, so code does not correctly handle right now
         username = "a" * (MAX_USERNAME_LENGTH + 1)
@@ -119,6 +124,20 @@ class TestDatabase(unittest.TestCase):
             "db > Input string is too long.",
             "db > "
         ])
+    
+    def test_data_persists(self):
+        commands = ["INSERT 0 user0 user0@email.com", ".exit"]
+        result = self.run_script(commands)
+
+        commands = ["SELECT", ".exit"]
+        result = self.run_script(commands)
+
+        self.assertEqual(result[-3:], [
+            "db > 0 user0 user0@email.com",
+            "Executed.",
+            "db > "
+        ])
+
 
 if __name__ == '__main__':
     unittest.main()

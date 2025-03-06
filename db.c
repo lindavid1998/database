@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define COLUMN_USERNAME_SIZE 32
 #define COLUMN_EMAIL_SIZE 255
@@ -25,8 +27,15 @@ const uint32_t TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
 typedef struct
 {
-    uint32_t num_rows;
+    int file_descriptor;
+    uint32_t file_length;
     void *pages[TABLE_MAX_PAGES];
+} Pager;
+
+typedef struct
+{
+    uint32_t num_rows;
+    Pager *pager;
 } Table;
 
 typedef struct
@@ -74,25 +83,120 @@ typedef struct
     Row row_to_insert; // only used by insert statement
 } Statement;
 
-Table *new_table()
+/* Initializes Pager struct */
+Pager *open_pager(const char *filename)
 {
-    Table *table = (Table *)malloc(sizeof(Table));
-    table->num_rows = 0;
+    // open file and get fd
+    int fd = open(filename, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
+    if (fd == -1)
+    {
+        printf("Error opening file\n");
+        exit(EXIT_FAILURE); // error handling
+    }
+
+    // get file length
+    off_t file_length = lseek(fd, 0, SEEK_END); // get offset of file end?
+    if (file_length == -1)
+    {
+        printf("Error getting file length\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // allocate memory and init properties for pager
+    Pager *pager = (Pager *)malloc(sizeof(Pager));
+    pager->file_descriptor = fd;
+    pager->file_length = file_length;
     for (int i = 0; i < TABLE_MAX_PAGES; i++)
     {
-        table->pages[i] = NULL;
+        pager->pages[i] = NULL;
     }
+
+    // return address for pager
+    return pager;
+}
+
+/*
+Open db connection with input file
+- Init pager and table
+- Load file into pager
+- Load pager in table
+*/
+Table *open_db(const char *filename)
+{
+    // init pager
+    Pager *pager = open_pager(filename);
+
+    // since we are loading the db file, num_rows in table depends on how much data is already in the db file
+    uint32_t num_rows = pager->file_length / ROW_SIZE;
+
+    // init table
+    Table *table = (Table *)malloc(sizeof(Table));
+    table->num_rows = num_rows;
+    table->pager = pager;
+
     return table;
 }
 
-void free_table(Table *table)
+/*
+Writes size bytes from page at pages[page_idx] to file
+
+I think specifying size as a parameter is useful if writing partial page to file
+*/
+void flush_page(Pager *pager, uint32_t page_idx, uint32_t size)
 {
-    for (int i = 0; i < TABLE_MAX_PAGES; i++)
+    int fd = pager->file_descriptor;
+
+    // set file offset
+    off_t offset = page_idx * PAGE_SIZE;
+    lseek(fd, offset, SEEK_SET);
+    if (offset == -1)
     {
-        free(table->pages[i]);
+        printf("Error seeking\n");
+        exit(EXIT_FAILURE);
     }
+
+    // write bytes to file
+    ssize_t bytes_written = write(fd, pager->pages[page_idx], size);
+    if (bytes_written == -1)
+    {
+        printf("Error writing page to file\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void close_db(Table *table)
+{
+    Pager *pager = table->pager;
+    uint32_t num_full_pages = table->num_rows / ROWS_PER_PAGE;
+
+    // flush pages and free memory
+    for (int i = 0; i < num_full_pages; i++)
+    {
+        void *page = pager->pages[i];
+        if (page)
+        {
+            flush_page(pager, i, PAGE_SIZE);
+            free(page);
+            pager->pages[i] = NULL;
+        }
+    }
+
+    // flush partial page
+    uint32_t num_additional_rows = table->num_rows % ROWS_PER_PAGE;
+    if (num_additional_rows > 0 && pager->pages[num_full_pages])
+    {
+        // how many bytes to write? number of extra rows x row size?
+        flush_page(pager, num_full_pages, num_additional_rows * ROW_SIZE);
+        free(pager->pages[num_full_pages]);
+        pager->pages[num_full_pages] = NULL;
+    }
+
+    close(pager->file_descriptor); // close file
+
+    free(pager);
     free(table);
 }
+
 /*
 Init InputBuffer object
 */
@@ -135,11 +239,12 @@ bool StartsWith(const char *a, const char *b)
     return strncmp(a, b, strlen(b)) == 0;
 }
 
-MetaCommandResult do_meta_command(InputBuffer *input_buffer)
+MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table)
 {
     if (strcmp(input_buffer->buffer, ".exit") == 0)
     {
         close_input_buffer(input_buffer);
+        close_db(table);
         exit(EXIT_SUCCESS);
     }
     else
@@ -203,25 +308,55 @@ PrepareResult prepare_statement(InputBuffer *input_buffer, Statement *statement)
 }
 
 /*
-Get address for where to insert row
-i.e. convert row num to address
+Get the address of page based on its index
+Allocates memory for page and loads data from file if it doesn't exist in memory yet
+*/
+void *get_page_address(Pager *pager, uint32_t page_idx)
+{
+    if (page_idx >= TABLE_MAX_PAGES)
+    {
+        printf("Tried to fetch page idx out of bounds.");
+        exit(EXIT_FAILURE);
+    }
+
+    void *page = pager->pages[page_idx];
+    if (page == NULL)
+    {
+        // cache miss, allocate memory for page using PAGE_SIZE
+        page = pager->pages[page_idx] = malloc(PAGE_SIZE);
+
+        // uint32_t num_pages = pager->file_length / PAGE_SIZE; // number of full pages
+        // // add 1 for partial page
+        // if (pager->file_length % PAGE_SIZE)
+        // {
+        //     num_pages += 1;
+        // }
+
+        // Set the file offset to wherever page_idx is
+        // SEEK_SET -> the file offset is set to offset (page_idx * PAGE_SIZE) bytes
+        lseek(pager->file_descriptor, page_idx * PAGE_SIZE, SEEK_SET);
+
+        // Read file into allocated page
+        ssize_t bytes_read = read(pager->file_descriptor, page, PAGE_SIZE);
+    }
+
+    return pager->pages[page_idx];
+}
+
+/*
+Convert row index to address
 */
 void *get_row_address(Table *table, uint32_t row_idx)
 {
+    Pager *pager = table->pager;
+
     // Get page address //
     uint32_t page_index = row_idx / ROWS_PER_PAGE;
-    void *page = table->pages[page_index];
-    // if page hasn't been allocated yet (null pointer)
-    if (page == NULL)
-    {
-        // allocate memory for it using PAGE_SIZE
-        page = table->pages[page_index] = malloc(PAGE_SIZE);
-    }
+    void *page = get_page_address(pager, page_index);
 
     // Get page offset //
     // to get offset, figure out which row idx on the page, then convert to bytes
-    uint32_t row_index = row_idx % ROWS_PER_PAGE;
-    uint32_t offset = row_index * ROW_SIZE;
+    uint32_t offset = (row_idx % ROWS_PER_PAGE) * ROW_SIZE;
 
     return page + offset;
 }
@@ -277,8 +412,9 @@ ExecuteResult execute_statement(Table *table, Statement *statement)
 
 int main(int argc, char *argv[])
 {
+    const char *filename = "data.db"; // TODO: replace with command line argument
     InputBuffer *input_buffer = new_input_buffer();
-    Table *table = new_table(); // table in memory, does not persist to disk
+    Table *table = open_db(filename);
 
     while (true)
     {
@@ -289,7 +425,7 @@ int main(int argc, char *argv[])
 
         if (input_buffer->buffer[0] == '.')
         {
-            switch (do_meta_command(input_buffer))
+            switch (do_meta_command(input_buffer, table))
             {
             case (META_COMMAND_SUCCESS):
                 break;
