@@ -45,6 +45,13 @@ typedef struct
     ssize_t input_length;
 } InputBuffer;
 
+typedef struct
+{
+    Table *table;
+    uint32_t row_idx;
+    bool end_of_table;
+} Cursor;
+
 typedef enum
 {
     META_COMMAND_SUCCESS,
@@ -82,6 +89,36 @@ typedef struct
     StatementType type;
     Row row_to_insert; // only used by insert statement
 } Statement;
+
+/* Initializes a cursor pointing to start of a table */
+Cursor *init_cursor_table_start(Table *table)
+{
+    // malloc a new cursor object
+    Cursor *cursor = (Cursor *)malloc(sizeof(Cursor));
+
+    // initialize properties of cursor
+    cursor->table = table;
+    cursor->row_idx = 0;
+    cursor->end_of_table = false;
+
+    // return cursor
+    return cursor;
+}
+
+/* Initializes a cursor pointing to end of a table */
+Cursor *init_cursor_table_end(Table *table)
+{
+    // malloc a new cursor object
+    Cursor *cursor = (Cursor *)malloc(sizeof(Cursor));
+
+    // initialize properties of cursor
+    cursor->table = table;
+    cursor->row_idx = table->num_rows;
+    cursor->end_of_table = true;
+
+    // return cursor
+    return cursor;
+}
 
 /* Initializes Pager struct */
 Pager *open_pager(const char *filename)
@@ -344,21 +381,34 @@ void *get_page_address(Pager *pager, uint32_t page_idx)
 }
 
 /*
-Convert row index to address
+Convert cursor object to memory address described by cursor
 */
-void *get_row_address(Table *table, uint32_t row_idx)
+void *get_row_address(Cursor *cursor)
 {
+    Table *table = cursor->table;
     Pager *pager = table->pager;
 
     // Get page address //
-    uint32_t page_index = row_idx / ROWS_PER_PAGE;
+    uint32_t page_index = cursor->row_idx / ROWS_PER_PAGE;
     void *page = get_page_address(pager, page_index);
 
     // Get page offset //
     // to get offset, figure out which row idx on the page, then convert to bytes
-    uint32_t offset = (row_idx % ROWS_PER_PAGE) * ROW_SIZE;
+    uint32_t offset = (cursor->row_idx % ROWS_PER_PAGE) * ROW_SIZE;
 
     return page + offset;
+}
+
+/* Advance cursor by one row */
+void advance_cursor(Cursor *cursor)
+{
+    cursor->row_idx += 1;
+    
+    // why >=? why not just ==?
+    if (cursor->row_idx >= cursor->table->num_rows)
+    {
+        cursor->end_of_table = true;
+    }
 }
 
 ExecuteResult execute_insert(Table *table, Statement *statement)
@@ -369,14 +419,19 @@ ExecuteResult execute_insert(Table *table, Statement *statement)
         return EXECUTE_STATEMENT_TABLE_FULL;
     }
 
+    // create cursor at end of table
+    Cursor *cursor = init_cursor_table_end(table);
+
     // get address to insert row
-    void *row_addr = get_row_address(table, table->num_rows);
+    void *row_addr = get_row_address(cursor);
 
     // insert serialized row into address
     serialize_row(&(statement->row_to_insert), row_addr);
 
     // increment table->num_rows by 1
     table->num_rows += 1;
+
+    free(cursor);
 
     return EXECUTE_STATEMENT_SUCCESS;
 }
@@ -390,12 +445,20 @@ ExecuteResult execute_select(Table *table, Statement *statement)
 {
     // print all rows
     Row row;
+
+    // init cursor at start of table
+    Cursor *cursor = init_cursor_table_start(table);
+
     // for each row, deserialize and print
-    for (uint32_t i = 0; i < table->num_rows; i++)
+    while (!(cursor->end_of_table))
     {
-        deserialize_row(get_row_address(table, i), &row);
+        deserialize_row(get_row_address(cursor), &row);
         print_row(&row);
+        advance_cursor(cursor);
     }
+
+    free(cursor);
+
     return EXECUTE_STATEMENT_SUCCESS;
 }
 
