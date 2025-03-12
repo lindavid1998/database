@@ -2,7 +2,8 @@ import subprocess
 import unittest
 import os
 
-MAX_ROWS = 1400
+# MAX_ROWS = 1400
+MAX_ROWS = 13 # for a single leaf node table
 MAX_USERNAME_LENGTH = 32
 MAX_EMAIL_LENGTH = 255
 
