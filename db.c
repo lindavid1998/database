@@ -25,6 +25,38 @@ const uint32_t PAGE_SIZE = 4096; // bytes
 const uint32_t ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
 const uint32_t TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
+// Common node header layout
+// Contains: node type, is root, pointer to parent
+const uint32_t NODE_TYPE_SIZE = sizeof(uint8_t);
+const uint32_t NODE_TYPE_OFFSET = 0;
+const uint32_t IS_ROOT_SIZE = sizeof(uint8_t);
+const uint32_t IS_ROOT_OFFSET = NODE_TYPE_SIZE;
+const uint32_t PARENT_POINTER_SIZE = sizeof(uint32_t);
+const uint32_t PARENT_POINTER_OFFSET = IS_ROOT_OFFSET + IS_ROOT_SIZE;
+const uint8_t COMMON_NODE_HEADER_SIZE = NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE;
+
+// Additional headers for leaf nodes
+// Contains: number of key-value pairs (aka cells)
+const uint32_t LEAF_NODE_NUM_CELLS_SIZE = sizeof(uint32_t);
+const uint32_t LEAF_NODE_NUM_CELLS_OFFSET = COMMON_NODE_HEADER_SIZE;
+const uint32_t LEAF_NODE_HEADER_SIZE = COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE;
+
+// Body layout for leaf nodes
+// Leaf nodes contains keys and values (rows)
+const uint32_t LEAF_NODE_KEY_SIZE = sizeof(uint32_t); // what exactly are we using as keys? the row id?
+const uint32_t LEAF_NODE_KEY_OFFSET = 0;
+const uint32_t LEAF_NODE_VALUE_SIZE = ROW_SIZE;
+const uint32_t LEAF_NODE_VALUE_OFFSET = LEAF_NODE_KEY_SIZE;
+const uint32_t LEAF_NODE_CELL_SIZE = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
+const uint32_t LEAF_NODE_AVAILABLE_CELL_SPACE = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
+const uint32_t LEAF_NODE_MAX_CELLS = LEAF_NODE_AVAILABLE_CELL_SPACE / LEAF_NODE_CELL_SIZE;
+
+typedef enum
+{
+    NODE_INTERNAL,
+    NODE_LEAF
+} NodeType;
+
 typedef struct
 {
     int file_descriptor;
@@ -403,7 +435,7 @@ void *get_row_address(Cursor *cursor)
 void advance_cursor(Cursor *cursor)
 {
     cursor->row_idx += 1;
-    
+
     // why >=? why not just ==?
     if (cursor->row_idx >= cursor->table->num_rows)
     {
@@ -471,6 +503,36 @@ ExecuteResult execute_statement(Table *table, Statement *statement)
     case (STATEMENT_SELECT):
         return execute_select(table, statement);
     }
+}
+
+/* Returns pointer to num cells in a leaf node */
+uint32_t *leaf_node_num_cells(void *node)
+{
+    return node + LEAF_NODE_NUM_CELLS_OFFSET;
+}
+
+/* Returns pointer to cell at cell_num of leaf node */
+void *leaf_node_cell(void *node, uint32_t cell_num)
+{
+    return node + LEAF_NODE_HEADER_SIZE + cell_num * LEAF_NODE_CELL_SIZE;
+}
+
+/* Returns pointer to key at cell_num of leaf node */
+void *leaf_node_key(void *node, uint32_t cell_num)
+{
+    return leaf_node_cell(node, cell_num);
+}
+
+/* Returns pointer to value at cell_num of leaf node */
+void *leaf_node_value(void *node, uint32_t cell_num)
+{
+    return leaf_node_cell(node, cell_num) + LEAF_NODE_KEY_SIZE;
+}
+
+void initialize_leaf_node(void *node)
+{
+    // set the number of cells to 0
+    *leaf_node_num_cells(node) = 0;
 }
 
 int main(int argc, char *argv[])
