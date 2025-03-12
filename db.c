@@ -51,6 +51,16 @@ const uint32_t LEAF_NODE_CELL_SIZE = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
 const uint32_t LEAF_NODE_AVAILABLE_CELL_SPACE = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
 const uint32_t LEAF_NODE_MAX_CELLS = LEAF_NODE_AVAILABLE_CELL_SPACE / LEAF_NODE_CELL_SIZE;
 
+void print_constants()
+{
+    printf("ROW_SIZE: %d\n", ROW_SIZE);
+    printf("COMMON_NODE_HEADER_SIZE: %d\n", COMMON_NODE_HEADER_SIZE);
+    printf("LEAF_NODE_HEADER_SIZE: %d\n", LEAF_NODE_HEADER_SIZE);
+    printf("LEAF_NODE_CELL_SIZE: %d\n", LEAF_NODE_CELL_SIZE);
+    printf("LEAF_NODE_AVAILABLE_CELL_SPACE: %d\n", LEAF_NODE_AVAILABLE_CELL_SPACE);
+    printf("LEAF_NODE_MAX_CELLS: %d\n", LEAF_NODE_MAX_CELLS);
+}
+
 typedef enum
 {
     NODE_INTERNAL,
@@ -316,6 +326,11 @@ MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table)
         close_db(table);
         exit(EXIT_SUCCESS);
     }
+else if (strcmp(input_buffer->buffer, ".constants") == 0)
+    {
+        print_constants();
+        return META_COMMAND_SUCCESS;
+    }
     else
     {
         return META_COMMAND_UNRECOGNIZED_COMMAND;
@@ -553,7 +568,7 @@ int main(int argc, char *argv[])
             switch (do_meta_command(input_buffer, table))
             {
             case (META_COMMAND_SUCCESS):
-                break;
+                continue;
             case (META_COMMAND_UNRECOGNIZED_COMMAND):
                 printf("Unrecognized command '%s'.\n", input_buffer->buffer);
                 continue;

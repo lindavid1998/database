@@ -138,6 +138,19 @@ class TestDatabase(unittest.TestCase):
             "db > "
         ])
 
+    def test_constants(self):
+        commands = [".constants", ".exit"]
+        result = self.run_script(commands)
+
+        self.assertEqual(result, [
+            "db > ROW_SIZE: 291",
+            "COMMON_NODE_HEADER_SIZE: 6",
+            "LEAF_NODE_HEADER_SIZE: 10",
+            "LEAF_NODE_CELL_SIZE: 295",
+            "LEAF_NODE_AVAILABLE_CELL_SPACE: 4086",
+            "LEAF_NODE_MAX_CELLS: 13",
+            "db > "
+        ])
 
 if __name__ == '__main__':
     unittest.main()
