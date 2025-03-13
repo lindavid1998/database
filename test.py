@@ -153,5 +153,39 @@ class TestDatabase(unittest.TestCase):
             "db > "
         ])
 
+    def test_keys_inserted_in_increasing_order(self):
+        commands = [
+            "INSERT 3 user3 user3@email.com",
+            "INSERT 1 user1 user1@email.com",
+            "INSERT 2 user2 user2@email.com",
+            ".btree",
+            ".exit"
+        ]
+        result = self.run_script(commands)
+
+        self.assertEqual(result[-5:], [
+            "Size: 3",
+            "  - 0 : 1",
+            "  - 1 : 2",
+            "  - 2 : 3",
+            "db > "
+        ])
+
+    def test_duplicate_keys(self):
+        commands = [
+            "INSERT 1 user1 user1@email.com",
+            "INSERT 1 user1 user1@email.com",
+            ".exit"
+        ]
+        result = self.run_script(commands)
+
+        self.assertEqual(result, [
+            "db > Executed.",
+            "db > Key (1) already exists in table",
+            "Failed to insert, key already exists.",
+            "db > "
+        ])
+
+
 if __name__ == '__main__':
     unittest.main()

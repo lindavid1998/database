@@ -115,7 +115,8 @@ typedef enum
 {
     EXECUTE_STATEMENT_SUCCESS,
     EXECUTE_STATEMENT_TABLE_FULL,
-    EXECUTE_STATEMENT_ERROR
+    EXECUTE_STATEMENT_ERROR,
+    EXECUTE_DUPLICATE_KEY
 } ExecuteResult;
 typedef enum
 {
@@ -159,10 +160,24 @@ void *leaf_node_value(void *node, uint32_t cell_idx)
     return leaf_node_cell(node, cell_idx) + LEAF_NODE_KEY_SIZE;
 }
 
+NodeType get_node_type(void *node)
+{
+    uint8_t value = *((uint8_t *)node + NODE_TYPE_OFFSET);
+    return (NodeType)value;
+}
+
+void set_node_type(void *node, NodeType type)
+{
+    uint8_t value = (uint8_t)type;
+    *(uint8_t *)(node + NODE_TYPE_OFFSET) = value;
+}
+
 void initialize_leaf_node(void *node)
 {
     // set the number of cells to 0
     *leaf_node_num_cells(node) = 0;
+    // set node type to leaf
+    set_node_type(node, NODE_LEAF);
 }
 
 /*
@@ -221,24 +236,6 @@ Cursor *init_cursor_table_start(Table *table)
     void *root_node = get_page_address(table->pager, table->root_page_idx);
     uint32_t num_cells = *leaf_node_num_cells(root_node);
     cursor->end_of_table = (num_cells == 0); // start is also end of table if there are no cells
-
-    return cursor;
-}
-
-/* Initializes a cursor pointing to end of a table (just past the last cell index) */
-Cursor *init_cursor_table_end(Table *table)
-{
-    // malloc a new cursor object
-    Cursor *cursor = (Cursor *)malloc(sizeof(Cursor));
-
-    // initialize properties of cursor
-    cursor->table = table;
-    cursor->page_idx = table->root_page_idx;
-
-    void *root_node = get_page_address(table->pager, table->root_page_idx);
-    uint32_t num_cells = *leaf_node_num_cells(root_node);
-    cursor->cell_idx = num_cells;
-    cursor->end_of_table = true;
 
     return cursor;
 }
@@ -551,31 +548,113 @@ void leaf_node_insert_cell(Cursor *cursor, uint32_t key, Row *value)
     // insert key and value into cell
     *(uint32_t *)(leaf_node_key(node, cursor->cell_idx)) = key;
     serialize_row(value, leaf_node_value(node, cursor->cell_idx));
+    // printf("DEBUG: inserted key (%d) and row (%s)\n", key, value->username);
 
     // increment num cells in leaf node
     *(leaf_node_num_cells(node)) += 1;
 }
 
+Cursor *leaf_node_find(Table *table, uint32_t page_idx, uint32_t key)
+{
+    // get node
+    void *node = get_page_address(table->pager, page_idx);
+
+    // get num cells in leaf node
+    uint32_t num_cells = *leaf_node_num_cells(node);
+
+    // init two pointers, one at first cell and one at last cell
+    int32_t l = 0;
+    int32_t r = num_cells - 1;
+    // uint32_t r = num_cells > 0 ? num_cells - 1 : 0;
+
+    // perform binary search to find the correct cell index to insert key
+    uint32_t cell_idx = 0; // init
+    // printf("DEBUG: Performing binary search with L (%d) and R (%d) initial\n", l, r);
+    while (num_cells > 0 && l <= r)
+    {
+        uint32_t m = (l + r) / 2;
+        // printf("DEBUG: L (%d), M (%d), R(%d)\n", l, m, r);
+        if (*(uint32_t *)leaf_node_key(node, m) == key)
+        {
+            cell_idx = m;
+            break;
+        }
+
+        if (*(uint32_t *)leaf_node_key(node, m) < key)
+        {
+            l = m + 1;
+            cell_idx = l;
+        }
+        else
+        {
+            r = m - 1;
+        }
+    }
+
+    // printf("DEBUG: Insert key at idx %d\n", cell_idx);
+    Cursor *cursor = (Cursor *)malloc(sizeof(Cursor));
+    cursor->table = table;
+    cursor->cell_idx = cell_idx;
+    cursor->page_idx = page_idx;
+    cursor->end_of_table = (cell_idx == num_cells);
+
+    return cursor;
+}
+
+/*
+Returns a cursor pointing to position of key
+If key does not exist, return position where it should be inserted
+*/
+Cursor *table_find(Table *table, uint32_t key)
+{
+    // get node
+    void *node = get_page_address(table->pager, table->root_page_idx);
+
+    if (get_node_type(node) == NODE_INTERNAL)
+    {
+        printf("TODO: Search internal node\n");
+        exit(EXIT_FAILURE);
+    }
+
+    Cursor *cursor = leaf_node_find(table, table->root_page_idx, key);
+    return cursor;
+}
+
 ExecuteResult execute_insert(Table *table, Statement *statement)
 {
     // for now, table is represented as a single leaf node
+    // instead of inserting at end of leaf node, we need to insert such that order is maintained
 
     // get addr of root leaf node
     void *node = get_page_address(table->pager, table->root_page_idx);
-    
-    if (*leaf_node_num_cells(node) >= LEAF_NODE_MAX_CELLS)
+    uint32_t num_cells = *leaf_node_num_cells(node);
+
+    if (num_cells >= LEAF_NODE_MAX_CELLS)
     {
         // table is full
         return EXECUTE_STATEMENT_TABLE_FULL;
     }
 
-    // create cursor at end of table
-    Cursor *cursor = init_cursor_table_end(table);
+    Row *row_to_insert = &(statement->row_to_insert);
+    uint32_t key_to_insert = row_to_insert->id;
+
+    // set cursor at the correct cell index within the leaf node to insert
+    Cursor *cursor = table_find(table, key_to_insert);
+    // printf("DEBUG: Set cursor at page index (%d), cell index (%d)\n", cursor->page_idx, cursor->cell_idx);
+
+    if (cursor->cell_idx < num_cells)
+    {
+        uint32_t key_at_cell_idx = *(uint32_t *)leaf_node_key(node, cursor->cell_idx);
+        if (key_at_cell_idx == key_to_insert)
+        {
+            // key already exists
+            printf("Key (%d) already exists in table\n", key_to_insert);
+            return EXECUTE_DUPLICATE_KEY;
+        }
+    }
 
     // insert cell
-    Row *row_to_insert = &(statement->row_to_insert);
-    uint32_t key = row_to_insert->id;
-    leaf_node_insert_cell(cursor, key, row_to_insert);
+    leaf_node_insert_cell(cursor, key_to_insert, row_to_insert);
 
     free(cursor);
 
@@ -669,6 +748,9 @@ int main(int argc, char *argv[])
             break;
         case (EXECUTE_STATEMENT_TABLE_FULL):
             printf("Failed to insert, table is full.\n");
+            continue;
+        case (EXECUTE_DUPLICATE_KEY):
+            printf("Failed to insert, key already exists.\n");
             continue;
         case (EXECUTE_STATEMENT_ERROR):
             printf("Error executing statement, please retry.\n");
