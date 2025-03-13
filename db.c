@@ -51,6 +51,36 @@ const uint32_t LEAF_NODE_CELL_SIZE = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
 const uint32_t LEAF_NODE_AVAILABLE_CELL_SPACE = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
 const uint32_t LEAF_NODE_MAX_CELLS = LEAF_NODE_AVAILABLE_CELL_SPACE / LEAF_NODE_CELL_SIZE;
 
+const uint32_t LEAF_NODE_LEFT_SPLIT_COUNT = (LEAF_NODE_MAX_CELLS + 1) / 2;
+const uint32_t LEAF_NODE_RIGHT_SPLIT_COUNT = LEAF_NODE_MAX_CELLS / 2;
+
+/*
+Internal node header layout
+Contains: num_keys, right_child pointer
+*/
+const uint32_t INTERNAL_NODE_NUM_KEYS_SIZE = sizeof(uint32_t);
+const uint32_t INTERNAL_NODE_NUM_KEYS_OFFSET = COMMON_NODE_HEADER_SIZE;
+const uint32_t INTERNAL_NODE_RIGHT_CHILD_SIZE = sizeof(uint32_t);
+const uint32_t INTERNAL_NODE_RIGHT_CHILD_OFFSET = INTERNAL_NODE_NUM_KEYS_OFFSET + INTERNAL_NODE_RIGHT_CHILD_SIZE;
+const uint32_t INTERNAL_NODE_HEADER_SIZE = COMMON_NODE_HEADER_SIZE +
+                                           INTERNAL_NODE_NUM_KEYS_SIZE +
+                                           INTERNAL_NODE_RIGHT_CHILD_SIZE;
+
+/*
+Internal node body layout
+The body is an array of cells where each cell contains a child pointer and a key.
+Every key should be the maximum key contained in the child to its left.
+*/
+const uint32_t INTERNAL_NODE_KEY_SIZE = sizeof(uint32_t);
+const uint32_t INTERNAL_NODE_CHILD_SIZE = sizeof(uint32_t);
+const uint32_t INTERNAL_NODE_CELL_SIZE =
+    INTERNAL_NODE_CHILD_SIZE + INTERNAL_NODE_KEY_SIZE;
+const uint32_t INTERNAL_NODE_AVAILABLE_CELL_SPACE = PAGE_SIZE - INTERNAL_NODE_HEADER_SIZE;
+const uint32_t INTERNAL_NODE_MAX_CELLS = LEAF_NODE_AVAILABLE_CELL_SPACE / INTERNAL_NODE_CELL_SIZE;
+
+// for child pointers, are we storing a pointer, or the page index?
+// i think just pointer, since the Pager will convert index to address
+
 void print_constants()
 {
     printf("ROW_SIZE: %d\n", ROW_SIZE);
@@ -59,6 +89,7 @@ void print_constants()
     printf("LEAF_NODE_CELL_SIZE: %d\n", LEAF_NODE_CELL_SIZE);
     printf("LEAF_NODE_AVAILABLE_CELL_SPACE: %d\n", LEAF_NODE_AVAILABLE_CELL_SPACE);
     printf("LEAF_NODE_MAX_CELLS: %d\n", LEAF_NODE_MAX_CELLS);
+    // TODO: may want to update to include internal node constants
 }
 
 typedef enum
@@ -149,7 +180,7 @@ void *leaf_node_cell(void *node, uint32_t cell_idx)
 }
 
 /* Returns pointer to key at cell_idx of leaf node */
-void *leaf_node_key(void *node, uint32_t cell_idx)
+uint32_t *leaf_node_key(void *node, uint32_t cell_idx)
 {
     return leaf_node_cell(node, cell_idx);
 }
@@ -158,6 +189,46 @@ void *leaf_node_key(void *node, uint32_t cell_idx)
 void *leaf_node_value(void *node, uint32_t cell_idx)
 {
     return leaf_node_cell(node, cell_idx) + LEAF_NODE_KEY_SIZE;
+}
+
+uint32_t *internal_node_cell(void *node, uint32_t cell_idx)
+{
+    return (uint32_t *)(node + INTERNAL_NODE_HEADER_SIZE + cell_idx * INTERNAL_NODE_CELL_SIZE);
+}
+
+uint32_t *internal_node_key(void *node, uint32_t cell_idx)
+{
+    return internal_node_cell(node, cell_idx) + INTERNAL_NODE_CHILD_SIZE;
+}
+
+/* Returns pointer to num keys for internal node */
+uint32_t *internal_node_num_keys(void *node)
+{
+    return (uint32_t *)(node + INTERNAL_NODE_NUM_KEYS_OFFSET);
+}
+
+/* Returns pointer to page index of right child of internal node */
+uint32_t *internal_node_right_child(void *node)
+{
+    return (uint32_t *)(node + INTERNAL_NODE_RIGHT_CHILD_OFFSET);
+}
+
+/* Returns pointer to page index of internal node i'th child */
+uint32_t *internal_node_child(void *node, uint32_t child_idx)
+{
+    uint32_t num_keys = *internal_node_num_keys(node);
+    if (child_idx >= num_keys)
+    {
+        printf("Tried to access child idx (%d) when there are only (%d) keys\n", child_idx, num_keys);
+        exit(EXIT_FAILURE);
+    }
+
+    if (child_idx == num_keys)
+    {
+        return internal_node_right_child(node);
+    }
+
+    return internal_node_cell(node, child_idx);
 }
 
 NodeType get_node_type(void *node)
@@ -172,19 +243,56 @@ void set_node_type(void *node, NodeType type)
     *(uint8_t *)(node + NODE_TYPE_OFFSET) = value;
 }
 
+uint32_t get_node_max_key(void *node)
+{
+    // max key will be the last key in the node
+    switch (get_node_type(node))
+    {
+    case NODE_INTERNAL:
+        return *internal_node_key(node, *internal_node_num_keys(node) - 1);
+    case NODE_LEAF:
+        return *leaf_node_key(node, *leaf_node_num_cells(node) - 1);
+    }
+}
+
+bool is_node_root(void *node)
+{
+    uint8_t is_root = *(uint8_t *)(node + IS_ROOT_OFFSET);
+    return (bool)is_root;
+}
+
+void set_node_root(void *node, bool is_root)
+{
+    uint8_t value = (uint8_t)is_root;
+    *(uint8_t *)(node + IS_ROOT_OFFSET) = value;
+}
+
 void initialize_leaf_node(void *node)
 {
     // set the number of cells to 0
     *leaf_node_num_cells(node) = 0;
     // set node type to leaf
     set_node_type(node, NODE_LEAF);
+    set_node_root(node, false);
+}
+
+void initialize_internal_node(void *node)
+{
+    set_node_type(node, NODE_INTERNAL);
+    set_node_root(node, false);
+    *internal_node_num_keys(node) = 0;
+}
+
+uint32_t *node_parent(void *node)
+{
+    return node + PARENT_POINTER_OFFSET;
 }
 
 /*
 Get the address of page based on its index
 Allocates memory for page and loads data from file if it doesn't exist in memory yet
 */
-void *get_page_address(Pager *pager, uint32_t page_idx)
+void *get_page(Pager *pager, uint32_t page_idx)
 {
     if (page_idx >= TABLE_MAX_PAGES)
     {
@@ -233,7 +341,7 @@ Cursor *init_cursor_table_start(Table *table)
     cursor->cell_idx = 0;
     cursor->page_idx = table->root_page_idx;
 
-    void *root_node = get_page_address(table->pager, table->root_page_idx);
+    void *root_node = get_page(table->pager, table->root_page_idx);
     uint32_t num_cells = *leaf_node_num_cells(root_node);
     cursor->end_of_table = (num_cells == 0); // start is also end of table if there are no cells
 
@@ -299,9 +407,10 @@ Table *open_db(const char *filename)
 
     if (pager->num_pages == 0)
     {
-        // new database file. init page 0 as leaf
-        void *root_node = get_page_address(pager, table->root_page_idx);
+        // new database file. init page 0 as root and leaf
+        void *root_node = get_page(pager, table->root_page_idx);
         initialize_leaf_node(root_node);
+        set_node_root(root_node, true);
     }
 
     return table;
@@ -424,7 +533,7 @@ MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table)
     }
     else if (strcmp(input_buffer->buffer, ".btree") == 0)
     {
-        void *node = get_page_address(table->pager, table->root_page_idx);
+        void *node = get_page(table->pager, table->root_page_idx);
         print_leaf_node(node);
         return META_COMMAND_SUCCESS;
     }
@@ -496,7 +605,7 @@ void *cursor_value(Cursor *cursor)
     Table *table = cursor->table;
 
     // Get node address //
-    void *node = get_page_address(table->pager, cursor->page_idx);
+    void *node = get_page(table->pager, cursor->page_idx);
 
     return leaf_node_value(node, cursor->cell_idx);
 }
@@ -505,7 +614,7 @@ void *cursor_value(Cursor *cursor)
 void advance_cursor(Cursor *cursor)
 {
     uint32_t page_idx = cursor->page_idx;
-    void *node = get_page_address(cursor->table->pager, page_idx);
+    void *node = get_page(cursor->table->pager, page_idx);
     cursor->cell_idx += 1;
 
     if (cursor->cell_idx >= *leaf_node_num_cells(node))
@@ -524,7 +633,7 @@ void leaf_node_insert_cell(Cursor *cursor, uint32_t key, Row *value)
 {
     // get address of node pointed by cursor
     Pager *pager = cursor->table->pager;
-    void *node = get_page_address(pager, cursor->page_idx);
+    void *node = get_page(pager, cursor->page_idx);
 
     // get number of cells currently in leaf node
     uint32_t num_cells = *leaf_node_num_cells(node);
@@ -557,7 +666,7 @@ void leaf_node_insert_cell(Cursor *cursor, uint32_t key, Row *value)
 Cursor *leaf_node_find(Table *table, uint32_t page_idx, uint32_t key)
 {
     // get node
-    void *node = get_page_address(table->pager, page_idx);
+    void *node = get_page(table->pager, page_idx);
 
     // get num cells in leaf node
     uint32_t num_cells = *leaf_node_num_cells(node);
@@ -608,7 +717,7 @@ If key does not exist, return position where it should be inserted
 Cursor *table_find(Table *table, uint32_t key)
 {
     // get node
-    void *node = get_page_address(table->pager, table->root_page_idx);
+    void *node = get_page(table->pager, table->root_page_idx);
 
     if (get_node_type(node) == NODE_INTERNAL)
     {
@@ -626,7 +735,7 @@ ExecuteResult execute_insert(Table *table, Statement *statement)
     // instead of inserting at end of leaf node, we need to insert such that order is maintained
 
     // get addr of root leaf node
-    void *node = get_page_address(table->pager, table->root_page_idx);
+    void *node = get_page(table->pager, table->root_page_idx);
     uint32_t num_cells = *leaf_node_num_cells(node);
 
     if (num_cells >= LEAF_NODE_MAX_CELLS)
