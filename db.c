@@ -399,6 +399,19 @@ bool StartsWith(const char *a, const char *b)
     return strncmp(a, b, strlen(b)) == 0;
 }
 
+void print_leaf_node(void *node)
+{
+    uint32_t num_cells = *(leaf_node_num_cells(node));
+    printf("Leaf:\n");
+    printf("Size: %d\n", num_cells);
+    for (int i = 0; i < num_cells; i++)
+    {
+        uint32_t key = *(uint32_t *)leaf_node_key(node, i);
+        // printf("cell: %d, key: %d\n", i, key);
+        printf("  - %d : %d\n", i, key);
+    }
+}
+
 MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table)
 {
     if (strcmp(input_buffer->buffer, ".exit") == 0)
@@ -410,6 +423,12 @@ MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table)
     else if (strcmp(input_buffer->buffer, ".constants") == 0)
     {
         print_constants();
+        return META_COMMAND_SUCCESS;
+    }
+    else if (strcmp(input_buffer->buffer, ".btree") == 0)
+    {
+        void *node = get_page_address(table->pager, table->root_page_idx);
+        print_leaf_node(node);
         return META_COMMAND_SUCCESS;
     }
     else
