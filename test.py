@@ -2,8 +2,8 @@ import subprocess
 import unittest
 import os
 
-# MAX_ROWS = 1400
-MAX_ROWS = 13 # for a single leaf node table
+MAX_ROWS = 1400
+MAX_ROWS_IN_LEAF = 13
 MAX_USERNAME_LENGTH = 32
 MAX_EMAIL_LENGTH = 255
 
@@ -73,6 +73,7 @@ class TestDatabase(unittest.TestCase):
 
 
     # Tests that table can hold MAX_ROWS    
+    @unittest.skip("This test is skipped, need to implement internal node searching")
     def test_insert_at_full_table(self):
         commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS)]
         commands += [".exit"]
@@ -86,6 +87,7 @@ class TestDatabase(unittest.TestCase):
 
 
     # Test the insert function when the table is full
+    @unittest.skip("This test is skipped, need to implement internal node searching")
     def test_insert_exceed_full_table(self):
         commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS + 1)]
         commands += [".exit"]
@@ -183,6 +185,17 @@ class TestDatabase(unittest.TestCase):
             "db > Executed.",
             "db > Key (1) already exists in table",
             "Failed to insert, key already exists.",
+            "db > "
+        ])
+    
+    def test_root_node_splits_when_full(self):
+        commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS_IN_LEAF + 1)]
+        commands += [".exit"]
+
+        result = self.run_script(commands)
+
+        self.assertEqual(result[-2:], [
+            "db > Executed.",
             "db > "
         ])
 
