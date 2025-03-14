@@ -165,13 +165,15 @@ class TestDatabase(unittest.TestCase):
         ]
         result = self.run_script(commands)
 
-        self.assertEqual(result[-5:], [
-            "Size: 3",
-            "  - 0 : 1",
-            "  - 1 : 2",
-            "  - 2 : 3",
+        expected = [
+            "db > - leaf (size 3)",
+            "  - 1",
+            "  - 2",
+            "  - 3",
             "db > "
-        ])
+        ]
+
+        self.assertEqual(result[-5:], expected)
 
     def test_duplicate_keys(self):
         commands = [
@@ -190,15 +192,33 @@ class TestDatabase(unittest.TestCase):
     
     def test_root_node_splits_when_full(self):
         commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS_IN_LEAF + 1)]
-        commands += [".exit"]
+        commands += [".btree", ".exit"]
 
         result = self.run_script(commands)
 
-        self.assertEqual(result[-2:], [
-            "db > Executed.",
+        expected = [
+            "db > - internal (size 1)",
+            "  - leaf (size 7)",
+            "    - 0",
+            "    - 1",
+            "    - 2",
+            "    - 3",
+            "    - 4",
+            "    - 5",
+            "    - 6",
+            "  - key 6",
+            "  - leaf (size 7)",
+            "    - 7",
+            "    - 8",
+            "    - 9",
+            "    - 10",
+            "    - 11",
+            "    - 12",
+            "    - 13",
             "db > "
-        ])
+        ]
 
+        self.assertEqual(result[-1 * len(expected):], expected)
 
 if __name__ == '__main__':
     unittest.main()

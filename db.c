@@ -51,8 +51,8 @@ const uint32_t LEAF_NODE_CELL_SIZE = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
 const uint32_t LEAF_NODE_AVAILABLE_CELL_SPACE = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
 const uint32_t LEAF_NODE_MAX_CELLS = LEAF_NODE_AVAILABLE_CELL_SPACE / LEAF_NODE_CELL_SIZE;
 
-const uint32_t LEAF_NODE_LEFT_SPLIT_COUNT = (LEAF_NODE_MAX_CELLS + 1) / 2;
-const uint32_t LEAF_NODE_RIGHT_SPLIT_COUNT = LEAF_NODE_MAX_CELLS / 2;
+const uint32_t LEAF_NODE_RIGHT_SPLIT_COUNT = (LEAF_NODE_MAX_CELLS + 1) / 2;
+const uint32_t LEAF_NODE_LEFT_SPLIT_COUNT = (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT;
 
 /*
 Internal node header layout
@@ -503,16 +503,49 @@ bool StartsWith(const char *a, const char *b)
     return strncmp(a, b, strlen(b)) == 0;
 }
 
-void print_leaf_node(void *node)
+void indent(uint32_t level)
 {
-    uint32_t num_cells = *(leaf_node_num_cells(node));
-    printf("Leaf:\n");
-    printf("Size: %d\n", num_cells);
-    for (int i = 0; i < num_cells; i++)
+    for (uint32_t i = 0; i < level; i++)
     {
-        uint32_t key = *(uint32_t *)leaf_node_key(node, i);
-        // printf("cell: %d, key: %d\n", i, key);
-        printf("  - %d : %d\n", i, key);
+        printf("  ");
+    }
+}
+
+void print_tree(Pager *pager, uint32_t page_idx, uint32_t indentation_level)
+{
+    void *node = get_page(pager, page_idx);
+    uint32_t num_keys, child;
+
+    switch (get_node_type(node))
+    {
+    case (NODE_LEAF):
+        num_keys = *leaf_node_num_cells(node);
+        indent(indentation_level);
+        printf("- leaf (size %d)\n", num_keys);
+
+        for (uint32_t i = 0; i < num_keys; i++)
+        {
+            indent(indentation_level + 1);
+            printf("- %d\n", *leaf_node_key(node, i));
+        }
+
+        break;
+    case (NODE_INTERNAL):
+        num_keys = *internal_node_num_keys(node);
+        indent(indentation_level);
+        printf("- internal (size %d)\n", num_keys);
+
+        for (uint32_t i = 0; i < num_keys; i++)
+        {
+            child = *internal_node_child(node, i);
+            print_tree(pager, child, indentation_level + 1);
+            indent(indentation_level + 1);
+            printf("- key %d\n", *internal_node_key(node, i));
+        }
+
+        child = *internal_node_right_child(node);
+        print_tree(pager, child, indentation_level + 1);
+        break;
     }
 }
 
@@ -532,7 +565,7 @@ MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table)
     else if (strcmp(input_buffer->buffer, ".btree") == 0)
     {
         void *node = get_page(table->pager, table->root_page_idx);
-        print_leaf_node(node);
+        print_tree(table->pager, table->root_page_idx, 0);
         return META_COMMAND_SUCCESS;
     }
     else
@@ -642,7 +675,7 @@ void create_root_node(Table *table, uint32_t right_child_page_idx)
 
     // why table and right child index as an argument?
     // table is identified by page idx of root, so we need to update that after creating the root
-    // we also need to update the parent pointer of the right child 
+    // we also need to update the parent pointer of the right child
 
     /*
     Handle splitting the root.
