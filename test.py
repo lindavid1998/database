@@ -87,16 +87,14 @@ class TestDatabase(unittest.TestCase):
 
 
     # Test the insert function when the table is full
-    @unittest.skip("This test is skipped, need to implement internal node searching")
     def test_insert_exceed_full_table(self):
         commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS + 1)]
         commands += [".exit"]
 
         result = self.run_script(commands)
 
-        self.assertEqual(result[-2:], [
-            "db > Failed to insert, table is full.",
-            "db > "
+        self.assertEqual(result[-1:], [
+            "db > TODO: Update parent after split",
         ])
 
     # 'allows inserting strings that are the maximum length'
@@ -225,7 +223,7 @@ class TestDatabase(unittest.TestCase):
         commands += [".btree", ".exit"]
 
         result = self.run_script(commands)
-        
+
         expected = [
             "db > - internal (size 1)",
             "  - leaf (size 7)",

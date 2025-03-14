@@ -217,7 +217,7 @@ uint32_t *internal_node_right_child(void *node)
 uint32_t *internal_node_child(void *node, uint32_t child_idx)
 {
     uint32_t num_keys = *internal_node_num_keys(node);
-    if (child_idx >= num_keys)
+    if (child_idx > num_keys)
     {
         printf("Tried to access child idx (%d) when there are only (%d) keys\n", child_idx, num_keys);
         exit(EXIT_FAILURE);
@@ -829,47 +829,45 @@ void leaf_node_insert_cell(Cursor *cursor, uint32_t key, Row *value)
 
 Cursor *leaf_node_find(Table *table, uint32_t page_idx, uint32_t key)
 {
+    // printf("Inserting key %d into leaf\n", key);
     // get node
     void *node = get_page(table->pager, page_idx);
 
     // get num cells in leaf node
     uint32_t num_cells = *leaf_node_num_cells(node);
+    // printf("There are %d cells in this leaf\n", num_cells);
 
-    // init two pointers, one at first cell and one at last cell
-    int32_t l = 0;
-    int32_t r = num_cells - 1;
-    // uint32_t r = num_cells > 0 ? num_cells - 1 : 0;
+    // init two pointers, one at first cell and one past last cell
+    int32_t min_idx = 0;
+    int32_t max_idx = num_cells;
 
-    // perform binary search to find the correct cell index to insert key
-    uint32_t cell_idx = 0; // init
-    // printf("DEBUG: Performing binary search with L (%d) and R (%d) initial\n", l, r);
-    while (num_cells > 0 && l <= r)
+    // perform binary search to find the correct cell idx to insert key
+    // printf("DEBUG: Performing binary search with min_idx (%d) and max_idx (%d) initial\n", min_idx, max_idx);
+    while (min_idx < max_idx)
     {
-        uint32_t m = (l + r) / 2;
-        // printf("DEBUG: L (%d), M (%d), R(%d)\n", l, m, r);
-        if (*(uint32_t *)leaf_node_key(node, m) == key)
+        uint32_t index = (min_idx + max_idx) / 2;
+        uint32_t key_at_index = *(uint32_t *)leaf_node_key(node, index);
+        if (key == key_at_index)
         {
-            cell_idx = m;
+            min_idx = index;
             break;
         }
-
-        if (*(uint32_t *)leaf_node_key(node, m) < key)
+        if (key > key_at_index)
         {
-            l = m + 1;
-            cell_idx = l;
+            min_idx = index + 1;
         }
         else
         {
-            r = m - 1;
+            max_idx = index;
         }
     }
 
-    // printf("DEBUG: Insert key at idx %d\n", cell_idx);
+    // printf("DEBUG: Insert key at idx %d\n", min_index);
     Cursor *cursor = (Cursor *)malloc(sizeof(Cursor));
     cursor->table = table;
-    cursor->cell_idx = cell_idx;
+    cursor->cell_idx = min_idx;
     cursor->page_idx = page_idx;
-    cursor->end_of_table = (cell_idx == num_cells);
+    cursor->end_of_table = (min_idx == num_cells);
 
     return cursor;
 }
@@ -877,17 +875,27 @@ Cursor *leaf_node_find(Table *table, uint32_t page_idx, uint32_t key)
 Cursor *internal_node_find(Table *table, uint32_t page_idx, uint32_t key)
 {
     void *node = get_page(table->pager, page_idx);
-    uint32_t child_idx = *internal_node_right_child(node);
     uint32_t num_keys = *internal_node_num_keys(node);
-    for (uint32_t i = 0; i < num_keys; i++)
+
+    // use binary search to find the child index
+    int32_t min_idx = 0;
+    int32_t max_idx = num_keys;
+    while (min_idx < max_idx)
     {
-        if (key <= *internal_node_key(node, i))
+        uint32_t index = (min_idx + max_idx) / 2;
+        uint32_t key_at_index = *internal_node_key(node, index);
+
+        if (key_at_index >= key)
         {
-            child_idx = *internal_node_child(node, i);
-            break;
+            max_idx = index;
+        }
+        else
+        {
+            min_idx = index + 1;
         }
     }
 
+    uint32_t child_idx = *internal_node_child(node, min_idx);
     void *child = get_page(table->pager, child_idx);
 
     if (get_node_type(child) == NODE_INTERNAL)
