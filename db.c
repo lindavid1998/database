@@ -874,19 +874,44 @@ Cursor *leaf_node_find(Table *table, uint32_t page_idx, uint32_t key)
     return cursor;
 }
 
+Cursor *internal_node_find(Table *table, uint32_t page_idx, uint32_t key)
+{
+    void *node = get_page(table->pager, page_idx);
+    uint32_t child_idx = *internal_node_right_child(node);
+    uint32_t num_keys = *internal_node_num_keys(node);
+    for (uint32_t i = 0; i < num_keys; i++)
+    {
+        if (key <= *internal_node_key(node, i))
+        {
+            child_idx = *internal_node_child(node, i);
+            break;
+        }
+    }
+
+    void *child = get_page(table->pager, child_idx);
+
+    if (get_node_type(child) == NODE_INTERNAL)
+    {
+        return internal_node_find(table, child_idx, key);
+    }
+    else
+    {
+        return leaf_node_find(table, child_idx, key);
+    }
+}
+
 /*
 Returns a cursor pointing to position of key
 If key does not exist, return position where it should be inserted
 */
 Cursor *table_find(Table *table, uint32_t key)
 {
-    // get node
+    // get root node
     void *node = get_page(table->pager, table->root_page_idx);
 
     if (get_node_type(node) == NODE_INTERNAL)
     {
-        printf("TODO: Search internal node\n");
-        exit(EXIT_FAILURE);
+        return internal_node_find(table, table->root_page_idx, key);
     }
 
     Cursor *cursor = leaf_node_find(table, table->root_page_idx, key);

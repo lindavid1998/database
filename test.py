@@ -219,6 +219,37 @@ class TestDatabase(unittest.TestCase):
         ]
 
         self.assertEqual(result[-1 * len(expected):], expected)
+    
+    def test_internal_node_search(self):
+        commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS_IN_LEAF + 2)]
+        commands += [".btree", ".exit"]
+
+        result = self.run_script(commands)
+        
+        expected = [
+            "db > - internal (size 1)",
+            "  - leaf (size 7)",
+            "    - 0",
+            "    - 1",
+            "    - 2",
+            "    - 3",
+            "    - 4",
+            "    - 5",
+            "    - 6",
+            "  - key 6",
+            "  - leaf (size 8)",
+            "    - 7",
+            "    - 8",
+            "    - 9",
+            "    - 10",
+            "    - 11",
+            "    - 12",
+            "    - 13",
+            "    - 14",
+            "db > "
+        ]
+
+        self.assertEqual(result[-1 * len(expected):], expected)
 
 if __name__ == '__main__':
     unittest.main()
