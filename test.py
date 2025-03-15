@@ -8,6 +8,22 @@ MAX_USERNAME_LENGTH = 32
 MAX_EMAIL_LENGTH = 255
 
 class TestDatabase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Compile with shell=True to properly execute gcc command
+        process = subprocess.Popen(
+            "gcc db.c",
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        # Wait for compilation to complete and check for errors
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            raise Exception(f"Compilation failed: {stderr.decode()}")
+
+
     def tearDown(self):
         os.remove("data.db")
 
@@ -146,9 +162,9 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(result, [
             "db > ROW_SIZE: 291",
             "COMMON_NODE_HEADER_SIZE: 6",
-            "LEAF_NODE_HEADER_SIZE: 10",
+            "LEAF_NODE_HEADER_SIZE: 14",
             "LEAF_NODE_CELL_SIZE: 295",
-            "LEAF_NODE_AVAILABLE_CELL_SPACE: 4086",
+            "LEAF_NODE_AVAILABLE_CELL_SPACE: 4082",
             "LEAF_NODE_MAX_CELLS: 13",
             "db > "
         ])
@@ -218,7 +234,35 @@ class TestDatabase(unittest.TestCase):
 
         self.assertEqual(result[-1 * len(expected):], expected)
     
-    def test_internal_node_search(self):
+    def test_print_all_rows_in_multi_level_tree(self):
+        commands = [f"INSERT {i} user{i} user{i}@email.com" for i in range(MAX_ROWS_IN_LEAF + 2)]
+        commands += ["SELECT", ".exit"]
+
+        result = self.run_script(commands)
+
+        expected = [
+            "db > 0 user0 user0@email.com",
+            "1 user1 user1@email.com",
+            "2 user2 user2@email.com",
+            "3 user3 user3@email.com",
+            "4 user4 user4@email.com",
+            "5 user5 user5@email.com",
+            "6 user6 user6@email.com",
+            "7 user7 user7@email.com",
+            "8 user8 user8@email.com",
+            "9 user9 user9@email.com",
+            "10 user10 user10@email.com",
+            "11 user11 user11@email.com",
+            "12 user12 user12@email.com",
+            "13 user13 user13@email.com",
+            "14 user14 user14@email.com",
+            "Executed.",
+            "db > "
+        ]
+
+        self.assertEqual(result[-1 * len(expected):], expected)
+
+    def test_print_multi_level_tree(self):
         commands = [f"INSERT {i} user{i} user{i}@example.com" for i in range(MAX_ROWS_IN_LEAF + 2)]
         commands += [".btree", ".exit"]
 
