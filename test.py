@@ -4,6 +4,8 @@ import os
 
 MAX_ROWS = 1400
 MAX_ROWS_IN_LEAF = 13
+MAX_KEYS_IN_INTERNAL = 3
+# MAX_KEYS_IN_INTERNAL = 510
 MAX_USERNAME_LENGTH = 32
 MAX_EMAIL_LENGTH = 255
 
@@ -22,7 +24,6 @@ class TestDatabase(unittest.TestCase):
         stdout, stderr = process.communicate()
         if process.returncode != 0:
             raise Exception(f"Compilation failed: {stderr.decode()}")
-
 
     def tearDown(self):
         os.remove("data.db")
@@ -110,7 +111,7 @@ class TestDatabase(unittest.TestCase):
         result = self.run_script(commands)
 
         self.assertEqual(result[-1:], [
-            "db > TODO: Update parent after split",
+            "db > Trying to insert cell but internal node is full. Need to implement splitting internal node",
         ])
 
     # 'allows inserting strings that are the maximum length'
@@ -166,6 +167,8 @@ class TestDatabase(unittest.TestCase):
             "LEAF_NODE_CELL_SIZE: 295",
             "LEAF_NODE_AVAILABLE_CELL_SPACE: 4082",
             "LEAF_NODE_MAX_CELLS: 13",
+            "INTERNAL_NODE_CELL_SIZE: 8",
+            f"INTERNAL_NODE_MAX_CELLS: {MAX_KEYS_IN_INTERNAL}",
             "db > "
         ])
 
@@ -288,6 +291,88 @@ class TestDatabase(unittest.TestCase):
             "    - 12",
             "    - 13",
             "    - 14",
+            "db > "
+        ]
+
+        self.assertEqual(result[-1 * len(expected):], expected)
+
+    def test_allows_printing_of_4_leaf_node_tree(self):
+        commands = [
+            "INSERT 18 user18 person18@example.com",
+            "INSERT 7 user7 person7@example.com",
+            "INSERT 10 user10 person10@example.com",
+            "INSERT 29 user29 person29@example.com",
+            "INSERT 23 user23 person23@example.com",
+            "INSERT 4 user4 person4@example.com",
+            "INSERT 14 user14 person14@example.com",
+            "INSERT 30 user30 person30@example.com",
+            "INSERT 15 user15 person15@example.com",
+            "INSERT 26 user26 person26@example.com",
+            "INSERT 22 user22 person22@example.com",
+            "INSERT 19 user19 person19@example.com",
+            "INSERT 2 user2 person2@example.com",
+            "INSERT 1 user1 person1@example.com",
+            "INSERT 21 user21 person21@example.com",
+            "INSERT 11 user11 person11@example.com", 
+            "INSERT 6 user6 person6@example.com",
+            "INSERT 20 user20 person20@example.com",
+            "INSERT 5 user5 person5@example.com",
+            "INSERT 8 user8 person8@example.com",
+            "INSERT 9 user9 person9@example.com",
+            "INSERT 3 user3 person3@example.com",
+            "INSERT 12 user12 person12@example.com",
+            "INSERT 27 user27 person27@example.com",
+            "INSERT 17 user17 person17@example.com",
+            "INSERT 16 user16 person16@example.com",
+            "INSERT 13 user13 person13@example.com",
+            "INSERT 24 user24 person24@example.com",
+            "INSERT 25 user25 person25@example.com",
+            "INSERT 28 user28 person28@example.com",
+            ".btree",
+            ".exit",
+        ]
+
+        result = self.run_script(commands)
+
+        expected = [
+            "db > - internal (size 3)",
+            "  - leaf (size 7)",
+            "    - 1",
+            "    - 2",
+            "    - 3",
+            "    - 4",
+            "    - 5",
+            "    - 6",
+            "    - 7",
+            "  - key 7",
+            "  - leaf (size 8)",
+            "    - 8",
+            "    - 9",
+            "    - 10",
+            "    - 11",
+            "    - 12",
+            "    - 13",
+            "    - 14",
+            "    - 15",
+            "  - key 15",
+            "  - leaf (size 7)",
+            "    - 16",
+            "    - 17",
+            "    - 18",
+            "    - 19",
+            "    - 20",
+            "    - 21",
+            "    - 22",
+            "  - key 22",
+            "  - leaf (size 8)",
+            "    - 23",
+            "    - 24",
+            "    - 25",
+            "    - 26",
+            "    - 27",
+            "    - 28",
+            "    - 29",
+            "    - 30",
             "db > "
         ]
 
