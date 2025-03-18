@@ -8,6 +8,7 @@
 #define COLUMN_USERNAME_SIZE 32
 #define COLUMN_EMAIL_SIZE 255
 #define TABLE_MAX_PAGES 100
+#define INVALID_PAGE_IDX UINT32_MAX
 
 // #define size_of_attribute(Struct, Attribute) sizeof(((Struct *)0)->Attribute)
 // const uint32_t ID_SIZE = size_of_attribute(Row, id);
@@ -291,6 +292,7 @@ void initialize_internal_node(void *node)
     set_node_type(node, NODE_INTERNAL);
     set_node_root(node, false);
     *internal_node_num_keys(node) = 0;
+    *internal_node_right_child(node) = INVALID_PAGE_IDX; // empty node has no right child
 }
 
 uint32_t *node_parent(void *node)
